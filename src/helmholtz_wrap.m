@@ -6,7 +6,7 @@ function [] = helmholtz_wrap()
 
 k = 0;
 
-for m = 4:4:32
+for m = 8:8
     helmholtz_sphereVec(m, m, k, 0);
 end
 

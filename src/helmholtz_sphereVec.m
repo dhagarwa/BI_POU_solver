@@ -34,20 +34,21 @@ for pp = 1:n_patch %pp denotes patch number
 end
 
 %FFT interpolation grid parameters
- uf = 16;  %upsampling factor
+ uf = 4;  %upsampling factor
  mf = uf*(m-2);
  nf = uf*(n-2);
 [xf, yf] = meshgrid(pi*(0:mf-1)/ (mf), pi*(0:nf-1)/ (nf)); %fft upsampled grid in meshgrid format
 
 %Start GMRES
-% sigma = gmres(@helmholtz_matvec, b, 3, 1e-10, 20);
-% 
-% s1 = 'sigma_vec_int_';
-% s2 = num2str(m);
-% s3 = num2str(k);
-% s4 = '.bin';
-% lbl = strcat(s1, s2, s3, s4);
-% %Type the values to file
+%sigma = gmres(@helmholtz_matvec, b, 3, 1e-10, 20);
+
+s1 = 'sigma_vec_int_';
+s2 = num2str(m);
+s3 = num2str(k);
+s4 = '.bin';
+lbl = strcat(s1, s2, s3, s4);
+
+%Type the values to file
 % sigma_real = real(sigma);
 % sigma_imag = imag(sigma);
 % adjacent = [sigma_real sigma_imag];
@@ -56,32 +57,69 @@ end
 % fclose(fileID);
 
 
-%Integral testing part
-r00 = [1/2, 1/2 , 1/sqrt(2)]; %target node
-sigma_p = ones(N,1); %sigmas on one patch
-sigma = [];
-for pp = 1:n_patch
-   sigma = [sigma;sigma_p];
-end
+% %------Integral testing part---------------------------
 
-
-uf = 16;  %upsampling factor
+% sigma_p = ones(N,1); %sigmas on one patch
+% sigma = [];
+% for pp = 1:n_patch
+%    sigma = [sigma;sigma_p];
+% end
+% 
+sigma_read = readSigma(lbl, N, n_patch);
+r00 = [0.0, 0.99 , 0]; %target node
+uf = 4;  %upsampling factor
 mf = uf*(m-2);
 nf = uf*(n-2);
 [xf, yf] = meshgrid(pi*(0:mf-1)/ (mf), pi*(0:nf-1)/ (nf)); %fft upsampled grid in meshgrid format
-h1
-%area = 1.000932988737018;
-%area = pi*rho_sing^2;
-area = -0.5;
-%err0 = abs(integrate_patches(r00, sigma, nodes, xf, yf, 0) - area)
-err1 = abs(integrate_patches(r00, sigma, nodes, xf, yf, 1) - area)
-%err2 = abs(integrate_patches(r00, sigma, nodes, xf, yf, 2) - area)
-%err3 = abs(integrate_patches(r00, sigma, nodes, xf, yf, 3) - 4*pi)/ (4*pi)
+
+area = 1 + r00(2);
+
+err1 = abs(integrate_patches(r00, sigma_read, nodes, xf, yf, 3) - area)
 
 % 
-% 
-%integral testing part ends
+% % 
+% % 
+% %------------integral testing part ends-------------
 
+
+% % -------------------Equivalent sources code------------------
+% %Calculating values at inward check surface 
+% sigma_read = readSigma(lbl, N, n_patch);
+% check_points = [];
+% equi_points = [];
+% R_equi = 0.90;
+% R_check = 0.75;
+% azi_h = 2*pi/(3*m); polar_h = pi/(3*n);
+% azi = 0:azi_h:2*pi-0.1; polar = 0:polar_h:pi;
+% for count1=1:length(azi)
+%     for count2 = 1:length(polar)
+%         check_x = R_check*cos(azi(count1))*sin(polar(count2));
+%         check_y = R_check*sin(azi(count1))* sin(polar(count2));
+%         check_z = R_check*cos(polar(count2));
+%         check_points = [check_points; check_x, check_y, check_z ];
+%         equi_x = R_equi*cos(azi(count1))*sin(polar(count2));
+%         equi_y = R_equi*sin(azi(count1))* sin(polar(count2));
+%         equi_z = R_equi*cos(polar(count2));
+%         equi_points = [equi_points; equi_x, equi_y, equi_z ];
+%     end
+% end
+% 
+% 
+% values_check_surface = zeros(size(check_points, 1), 1);
+% for count = 1:size(check_points, 1)
+%     values_check_surface(count) = integrate_patches(check_points(count, :), sigma_read, nodes, xf, yf, 2);
+% end
+% 
+% %values_check_surface
+% 
+% %Use GMRES to solve for "w" : equivalent weights at check points 
+% weights = gmres(@equi_source_matvec, values_check_surface, 5, 1e-10, 30);
+% trg_point = [0.2, 0.2, 0];
+% disp('Error:');
+% abs(sum(dphi(trg_point, equi_points).*weights) - (1+trg_point(2)))
+ % % ---------------------Equivalent sources code ends-------------------
+
+% % -------------Calculating solution, error and graph -----------------
 % %With sigma calculate the solution at some point
 % 
 % fileID = fopen(lbl);
@@ -144,7 +182,7 @@ err1 = abs(integrate_patches(r00, sigma, nodes, xf, yf, 1) - area)
 % legend('approximate', 'true');
 % xlabel('r');
 % ylabel('Realpart of solution');
-
+% % -------------Calculating solution and graph ends ---------
 
 %GMRES matvec function
     function Ax = helmholtz_matvec(x)
@@ -157,6 +195,17 @@ err1 = abs(integrate_patches(r00, sigma, nodes, xf, yf, 1) - area)
                 Ax((p-1)*N + ii) = -0.5*x((p-1)*N + ii)  + integrate_patches(r0, x, nodes, xf, yf, 1 );            %-0.5x(ii) for interior , + for exterior
             end
         end
+    end
+
+
+% GMRES equisource matevc function
+    function Lx = equi_source_matvec(x)
+        N_check = size(values_check_surface, 1);
+       Lx = zeros(N_check, 1);
+       for ii=1:N_check
+          Lx(ii) = sum(dphi(check_points(ii, :), equi_points).*x); 
+       end
+        
     end
 
 
